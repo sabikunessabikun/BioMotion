@@ -1,0 +1,1 @@
+This repository contains a raw DSP implementation of a Complementary Filter for the MPU6050 to track human joint kinematics. Includes integer overflow protection for 8-bit microcontrollers during trigonometric calculations.
