@@ -1,0 +1,78 @@
+#include <Wire.h>
+
+const int MPU_ADDR = 0x68; // MPU6050 I2C adresi
+
+// Sensörden okunacak ham veriler
+int16_t accX, accY, accZ;
+int16_t gyroX, gyroY, gyroZ;
+
+// Filtrelenmiş açılar
+float roll = 0; 
+float pitch = 0;
+
+// Zaman takibi için değişkenler
+unsigned long lastTime;
+float dt;
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin();
+  
+  // MPU6050'yi uyandır
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x6B); // Güç yönetimi register'ı
+  Wire.write(0);    // Uyandır (0 yazarak)
+  Wire.endTransmission(true);
+  
+  lastTime = millis();
+  Serial.println("Sistem Hazir! Seri Ciziciyi Acin.");
+}
+
+void loop() {
+  // Zaman farkını (dt) saniye cinsinden hesapla
+  unsigned long currentTime = millis();
+  dt = (currentTime - lastTime) / 1000.0;
+  lastTime = currentTime;
+
+  // Verileri sensörden çek
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x3B); // İvmeölçer verilerinin başladığı adres
+  Wire.endTransmission(false);
+  Wire.requestFrom(MPU_ADDR, 14, true); 
+
+  accX = Wire.read() << 8 | Wire.read();
+  accY = Wire.read() << 8 | Wire.read();
+  accZ = Wire.read() << 8 | Wire.read();
+  
+  // Sıcaklık verisini atla (2 byte)
+  Wire.read(); Wire.read(); 
+  
+  gyroX = Wire.read() << 8 | Wire.read();
+  gyroY = Wire.read() << 8 | Wire.read();
+  gyroZ = Wire.read() << 8 | Wire.read();
+
+ // 1. İVMEÖLÇERDEN AÇI HESAPLAMA (Trigonometri - Overflow Korumalı)
+  // Ham verileri float'a (ondalıklı sayı) çeviriyoruz ki çarpım sırasında hafıza taşmasın!
+  float f_accX = (float)accX;
+  float f_accY = (float)accY;
+  float f_accZ = (float)accZ;
+
+  float accRoll = atan2(f_accY, f_accZ) * 180 / PI;
+  float accPitch = atan2(-f_accX, sqrt(f_accY * f_accY + f_accZ * f_accZ)) * 180 / PI;
+  // 2. JİROSKOP VERİSİNİ DERECE/SANİYE'YE ÇEVİRME
+  // MPU6050 datasheet'ine göre default hassasiyet böleni 131.0'dır
+  float gyroRateX = gyroX / 131.0;
+  float gyroRateY = gyroY / 131.0;
+
+  // 3. EFSANEVİ "COMPLEMENTARY FILTER" (TAMAMLAYICI FİLTRE)
+  // Açının %98'i jiroskoptan (hızlı ve pürüzsüz), %2'si ivmeölçerden (kaymayı önler)
+  roll = 0.98 * (roll + gyroRateX * dt) + 0.02 * accRoll;
+  pitch = 0.98 * (pitch + gyroRateY * dt) + 0.02 * accPitch;
+
+  // SERİ ÇİZİCİ İÇİN ÇIKTI (Sadece sayılar)
+  Serial.print(roll);  // X eksenindeki devrilme
+  Serial.print(",");
+  Serial.println(pitch); // Y eksenindeki eğilme (Diz bükülmesi)
+
+  delay(10); // 100 Hz örnekleme hızı
+}
